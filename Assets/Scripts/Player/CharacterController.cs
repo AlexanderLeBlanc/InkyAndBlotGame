@@ -6,9 +6,24 @@ using UnityEngine;
 public class CharacterController : MonoBehaviour
 {
     //Settings
-    public float walkSpeed = 40f;
-    public float jumpHeight = 40f;
-    [Range(0, .3f)][SerializeField] private float MovementSmoothing = .05f;
+    [Header("Move Settings")]
+    public float moveSpeed = 1f;
+    public float accelerationRate = 0.1f;
+    public float deccelerationRate = 0.1f;
+    public float velPower = 1f;
+    public float friction = 2f;
+
+    [Header("Jump Settings")]
+    public float jumpForce = 1f;
+    public float coyoteTime = 0.5f;
+    public float jumpBufferTime = 0.5f;
+    public float jumpCutMultiplier = 2f;
+    public float fallGravityMultiplier = 2f;
+    private float gravityScale;
+
+    //public float walkSpeed = 40f;
+    //public float jumpHeight = 40f;
+    //[Range(0, .3f)][SerializeField] private float MovementSmoothing = .05f;
 
     //Input
     private float hMove = 0f;
@@ -34,10 +49,17 @@ public class CharacterController : MonoBehaviour
 
     //Animator
     private Animator animator;
+    #endregion
 
-    //Ground mask
+    #region Jump
+    //Jump State
     [SerializeField]
     private LayerMask WhatIsGround;
+    private float lastGroundTime = 0f;
+    private float lastJumpTime = 0f;
+    private Vector2 groundCheckSize = new Vector2(0.2f, 0.2f);
+    private bool isJumping = false;
+    private bool jumpInputReleased = false;
     #endregion
 
     #region Children
@@ -58,17 +80,23 @@ public class CharacterController : MonoBehaviour
         cRigidBody = GetComponent<Rigidbody2D>();
         animator = GetComponent<Animator>();
         CurBlotCharges = StartingBlotCharges;
+        gravityScale = cRigidBody.gravityScale;
     }
 
     // Update is called once per frame
     void Update()
     {
         //Get Input
-        hMove = Input.GetAxisRaw("Horizontal") * walkSpeed;
+        hMove = Input.GetAxisRaw("Horizontal");
+        //hMove = Input.GetAxisRaw("Horizontal") * walkSpeed;
 
         if (Input.GetButtonDown("Jump")) 
-        { 
-            jump = true;
+        {
+            OnJump();
+        }
+
+        if (Input.GetButtonUp("Jump")) {
+            OnJumpUp();
         }
 
         if (Input.GetButtonDown("Fire1") && blot == null && canUseBlot) 
@@ -80,18 +108,38 @@ public class CharacterController : MonoBehaviour
 
     private void FixedUpdate()
     {
-        //Check if in ground
-        if (!grounded) {
-            Collider2D[] colliders = Physics2D.OverlapCircleAll(GroundCheck.transform.position, 0.2f, WhatIsGround);
-            for (int i = 0; i < colliders.Length; i++)
-            {
-                if (colliders[i].gameObject != gameObject)
-                {
-                    grounded = true;
-                }
-            }
+        //Increase Timers
+        lastGroundTime -= Time.deltaTime;
+        
+        //Check if jumping
+        if (cRigidBody.velocity.y <= 0 && isJumping) {
+            Debug.Log("Done Jump");
+            isJumping = false;
         }
 
+        //Check if grounded
+        if (Physics2D.OverlapBox(GroundCheck.transform.position, groundCheckSize, 0, WhatIsGround))
+        {
+            lastGroundTime = coyoteTime;
+        }
+
+        if (cRigidBody.velocity.y < 0) {
+            cRigidBody.gravityScale = gravityScale * fallGravityMultiplier;
+        } else {
+            cRigidBody.gravityScale = gravityScale;
+        }
+
+        float targetSpeed = hMove * moveSpeed;
+        float speedDif = targetSpeed - cRigidBody.velocity.x;
+        float accelRate = (Mathf.Abs(targetSpeed) > 0.01f) ? accelerationRate : deccelerationRate;
+        float movement = Mathf.Pow(Mathf.Abs(speedDif) * accelRate, velPower) * Mathf.Sign(speedDif);
+
+        cRigidBody.AddForce(movement * Vector2.right);
+
+        //ADD FRICTION
+
+        //Check if in ground
+        /*
         //If shooting take shoot action
         if (grounded && shoot && CurBlotCharges > 0)
         {
@@ -102,9 +150,30 @@ public class CharacterController : MonoBehaviour
         if (!animator.GetCurrentAnimatorStateInfo(0).IsName("Shoot") && canMove)
             Move(); 
 
-        //Reset State
+        //Reset State*/
+
         shoot = false;
-        jump = false;
+    }
+
+    private void OnJump() {
+        if (!isJumping && lastGroundTime > 0)
+        {
+            Debug.Log("Jump");
+            //zero vertical momentum
+            cRigidBody.velocity = cRigidBody.velocity * Vector2.right;
+            cRigidBody.AddForce(Vector2.up * jumpForce, ForceMode2D.Impulse);
+            lastGroundTime = 0;
+            isJumping = true;
+            jumpInputReleased = false;
+        }
+    }
+
+    private void OnJumpUp() {
+        if (cRigidBody.velocity.y > 0 && isJumping) {
+            cRigidBody.AddForce(Vector2.down * cRigidBody.velocity.y * (1 - jumpCutMultiplier), ForceMode2D.Impulse);
+        }
+
+        jumpInputReleased = true;
     }
 
     private void Move() {
@@ -112,7 +181,7 @@ public class CharacterController : MonoBehaviour
         //Apply Input, and smooth velocity
         var targetVelocity = new Vector2(hMove * Time.deltaTime * 10, 0);
         Vector3 vel = Vector3.zero;
-        cRigidBody.velocity = Vector3.SmoothDamp(cRigidBody.velocity, targetVelocity, ref vel, MovementSmoothing);
+        //cRigidBody.velocity = Vector3.SmoothDamp(cRigidBody.velocity, targetVelocity, ref vel, MovementSmoothing);
 
         //Flip facing direction
         if (hMove > 0 && !facingRight) 
@@ -137,7 +206,7 @@ public class CharacterController : MonoBehaviour
         //Jump code
         if (grounded && jump) {
             grounded = false;
-            cRigidBody.AddForce(new Vector2(0f, jumpHeight * 10));
+            //cRigidBody.AddForce(new Vector2(0f, jumpHeight * 10));
             animator.SetBool("IsJumping", true);
         }
 
